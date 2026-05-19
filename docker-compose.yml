@@ -1,0 +1,200 @@
+services:
+  # ── Database ──
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: mc-db
+    environment:
+      POSTGRES_USER: ${DB_USER:-copilot}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: ${DB_NAME:-copilot}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U copilot -d copilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ──
+  redis:
+    image: redis:7-alpine
+    container_name: mc-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── MinIO (S3-compatible blob store) ──
+  minio:
+    image: minio/minio:latest
+    container_name: mc-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"   # API
+      - "9001:9001"   # Console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+
+  # ── HashiCorp Vault (dev mode) ──
+  vault:
+    image: hashicorp/vault:1.18
+    container_name: mc-vault
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_TOKEN?err}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8200:8200"
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+
+  # ── Langfuse (observability / tracing) ──
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: mc-langfuse
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://copilot:changeme@db:5432/langfuse
+      NEXTAUTH_SECRET: my-secret-change-me
+      NEXTAUTH_URL: http://localhost:3000
+      # Langfuse can reuse the same Postgres (separate schema is good)
+      # We'll point it to the same DB; Langfuse creates its own tables.
+      # In production you'd want a separate DB, but for dev it's fine.
+      SALT: "dev-salt-replace-with-strong-random-string"
+      LANGFUSE_INIT_USER_EMAIL: admin@example.com
+      LANGFUSE_INIT_USER_PASSWORD: admin123
+      LANGFUSE_INIT_USER_NAME: "Admin"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ── Database migration (one-shot) ──
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/migrate.Dockerfile
+    container_name: mc-migrate
+    environment:
+      DATABASE_URL: postgresql+asyncpg://copilot:changeme@db:5432/copilot
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+
+  # ── FastAPI API server ──
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    container_name: mc-api
+    ports:
+      - "8000:8000"
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_TOKEN?err}
+      DATABASE_URL: postgresql+asyncpg://copilot:changeme@db:5432/copilot
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      LANGFUSE_HOST: http://langfuse:3000
+      LANGFUSE_PUBLIC_KEY: pk-lf-dev
+      LANGFUSE_SECRET_KEY: sk-lf-dev
+      MODEL_SERVER_URL: http://model-server:8001
+      # NOT secret – these are dev defaults; real secrets come from Vault
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      langfuse:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"   # fail immediately if boot checks fail
+
+  # ── Model inference server (classifier, NER, embedder, reranker) ──
+  model-server:
+    build:
+      context: .
+      dockerfile: docker/model_server.Dockerfile
+    container_name: mc-model-server
+    ports:
+      - "8001:8001"
+    environment:
+      MODEL_SERVER_PORT: "8001"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    depends_on:
+      minio:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Streamlit chatbot/admin UI ──
+  streamlit:
+    build:
+      context: .
+      dockerfile: docker/streamlit.Dockerfile
+    container_name: mc-streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      API_BASE_URL: http://api:8000
+      STREAMLIT_SERVER_PORT: "8501"
+    depends_on:
+      api:
+        condition: service_started
+
+  # ── Widget static server (serves the built JS bundle & loader) ──
+  widget:
+    build:
+      context: .
+      dockerfile: docker/widget.Dockerfile
+    container_name: mc-widget
+    ports:
+      - "8080:8080"
+
+  # ── Demo host app (nginx serving a static page) ──
+  host:
+    build:
+      context: .
+      dockerfile: demo/host/Dockerfile
+    container_name: mc-host
+    ports:
+      - "9090:80"
+    depends_on:
+      widget:
+        condition: service_started
+
+volumes:
+  pgdata:
+  minio_data:

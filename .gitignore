@@ -1,0 +1,80 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+*.egg
+*.whl
+.venv/
+venv/
+env/
+*.so
+*.dylib
+*.dll
+
+# ── Environment & Secrets ──
+.env
+.env.*
+*.pem
+*.key
+vault_token
+
+# ── IDE & Editors ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# ── Testing & Coverage ──
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+*.log
+
+# ── MyPy ──
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# ── Jupyter ──
+.ipynb_checkpoints/
+
+# ── Node (Widget) ──
+node_modules/
+widget/dist/
+widget/.vite/
+*.tsbuildinfo
+
+# ── Streamlit ──
+.streamlit/
+
+# ── Docker ──
+docker-compose.override.yml
+*.log
+
+# ── Volume Mounts (if used locally) ──
+pgdata/
+minio_data/
+langfuse_data/
+redis_data/
+
+# ── OS Files ──
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ── Project Specific ──
+eval_report.json
+*.bak
+tmp/
+.cache/
+
+# ── Alembic ──
+migrations/versions/*.bak
