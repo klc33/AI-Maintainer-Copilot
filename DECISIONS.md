@@ -1,0 +1,1 @@
+docker compose exec -T -e VAULT_TOKEN=root vault vault kv put -address=http://vault:8200 secret/shared/langfuse public="pk-lf-ee4bae61-147e-47db-b01d-00de5b4c5e9a" secret="sk-lf-aace6c03-14c8-42a2-bde4-937c57066328" this is needed for tracing

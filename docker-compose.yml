@@ -75,10 +75,7 @@ services:
       DATABASE_URL: postgresql://copilot:changeme@db:5432/langfuse
       NEXTAUTH_SECRET: my-secret-change-me
       NEXTAUTH_URL: http://localhost:3000
-      # Langfuse can reuse the same Postgres (separate schema is good)
-      # We'll point it to the same DB; Langfuse creates its own tables.
-      # In production you'd want a separate DB, but for dev it's fine.
-      SALT: "dev-salt-replace-with-strong-random-string"
+      SALT: "dev-salt-do-not-use-in-production-change-me"
       LANGFUSE_INIT_USER_EMAIL: admin@example.com
       LANGFUSE_INIT_USER_PASSWORD: admin123
       LANGFUSE_INIT_USER_NAME: "Admin"
@@ -115,9 +112,9 @@ services:
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
-      LANGFUSE_HOST: http://langfuse:3000
-      LANGFUSE_PUBLIC_KEY: pk-lf-dev
-      LANGFUSE_SECRET_KEY: sk-lf-dev
+      LANGFUSE_HOST: https://cloud.langfuse.com
+      LANGFUSE_PUBLIC_KEY: pk-lf-ee4bae61-147e-47db-b01d-00de5b4c5e9a
+      LANGFUSE_SECRET_KEY: sk-lf-aace6c03-14c8-42a2-bde4-937c57066328
       MODEL_SERVER_URL: http://model-server:8001
       # NOT secret – these are dev defaults; real secrets come from Vault
     depends_on:
@@ -131,8 +128,6 @@ services:
         condition: service_healthy
       langfuse:
         condition: service_started
-      migrate:
-        condition: service_completed_successfully
     restart: "no"   # fail immediately if boot checks fail
 
   # ── Model inference server (classifier, NER, embedder, reranker) ──
@@ -148,6 +143,9 @@ services:
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
+      MODEL_PATH: /app/models/classifier/v1
+    volumes:
+      - ./models/classifier/v1:/app/models/classifier/v1:ro
     depends_on:
       minio:
         condition: service_healthy

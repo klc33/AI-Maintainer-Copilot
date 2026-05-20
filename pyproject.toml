@@ -16,7 +16,7 @@ api = [
     "alembic>=1.13",
     "asyncpg>=0.31.0",
     "fastapi>=0.115.0",
-    "fastapi-users[redis,sqlalchemy]>=13.0",
+    "fastapi-users[redis,sqlalchemy]>=14.0",
     "groq>=1.2.0",
     "httpx>=0.28.1",
     "hvac>=2.4.0",
@@ -45,14 +45,15 @@ evals = [
     "requests>=2.34.2",
 ]
 model-server = [
-    "datasets>=4.8.5",
     "fastapi>=0.115.0",
-    "huggingface-hub>=1.15.0",
-    "minio>=7.2.20",
-    "scikit-learn>=1.8.0",
+    "uvicorn[standard]",
+    "transformers[torch]",
+    "datasets",
+    "scikit-learn",
     "spacy<3.8",
-    "transformers[torch]>=5.8.1",
-    "uvicorn[standard]>=0.47.0",
+    "huggingface-hub",
+    "minio",
+    "numpy==1.26.4",          # ← PINNED
 ]
 streamlit = [
     "fastapi-users[sqlalchemy]>=15.0.5",

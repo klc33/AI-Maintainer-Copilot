@@ -14,3 +14,6 @@ class VaultError(InfraError):
 
 class DatabaseError(InfraError):
     pass
+class DomainError(AppError):
+    """Expected domain error (not found, conflict, validation)."""
+    pass

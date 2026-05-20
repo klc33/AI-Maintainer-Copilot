@@ -20,8 +20,10 @@ class VaultClient:
         if path in self._cache:
             return self._cache[path]
         try:
+            # hvac expects path relative to mount point, not including 'secret/'
+            relative_path = path.replace("secret/", "", 1) if path.startswith("secret/") else path
             response = self._client.secrets.kv.v2.read_secret_version(
-                path=path, mount_point="secret"
+                path=relative_path, mount_point="secret"
             )
             data = response["data"]["data"]
             self._cache[path] = data

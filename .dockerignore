@@ -1,0 +1,87 @@
+# ── Python virtual environment & cache ──
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+*.whl
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Node (widget) build artifacts ──
+widget/node_modules/
+widget/dist/
+widget/.vite/
+
+# ── Datasets (large CSV/Parquet files not needed at runtime) ──
+datasets/*.csv
+datasets/*.parquet
+datasets/*.json
+
+# ── Model artifacts (weights, checkpoints) ──
+models/
+*.bin
+*.safetensors
+*.ckpt
+*.pth
+
+# ── Logs, temporary files ──
+*.log
+*.bak
+tmp/
+.cache/
+
+# ── Docker & Compose overrides ──
+docker-compose.override.yml
+.dockerignore
+
+# ── IDE & Editor files ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# ── OS & filesystem ──
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ── Git & GitHub ──
+.git/
+.gitattributes
+.gitignore
+.github/
+
+# ── Environment & secrets ──
+.env
+.env.*
+*.pem
+*.key
+
+# ── Documentation (not needed at runtime) ──
+docs/
+README.md
+ARCH.md
+DECISIONS.md
+RUNBOOK.md
+EVALS.md
+SECURITY.md
+
+# ── Evaluation artifacts (leave only the script) ──
+eval_report.json
+
+# ── Local volume mounts (if any) ──
+pgdata/
+minio_data/
+langfuse_data/
+redis_data/
+
+# ── Streamlit cache ──
+.streamlit/
