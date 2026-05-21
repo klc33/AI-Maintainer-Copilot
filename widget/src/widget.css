@@ -1,3 +1,280 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* widget.css — vanilla CSS for the embeddable chat widget.
+ *
+ * Tokens live on :root inside the iframe. The widget runtime overrides
+ * --mc-color (theme.color) and computes a few derived shades from it via
+ * color-mix() so the whole UI re-skins from a single user input.
+ */
+:root {
+  --mc-color: #4f46e5;
+  --mc-color-fg: #ffffff;
+  --mc-bg: #ffffff;
+  --mc-bg-soft: #f8fafc;
+  --mc-border: #e5e7eb;
+  --mc-text: #0f172a;
+  --mc-text-muted: #64748b;
+  --mc-radius-lg: 18px;
+  --mc-radius-md: 14px;
+  --mc-radius-sm: 10px;
+  --mc-shadow: 0 12px 32px rgba(15, 23, 42, 0.18), 0 2px 6px rgba(15, 23, 42, 0.06);
+  --mc-shadow-bubble: 0 6px 16px rgba(15, 23, 42, 0.22);
+  --mc-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", sans-serif;
+  --mc-anim: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#mc-widget-root,
+#mc-widget-root * {
+  box-sizing: border-box;
+  font-family: var(--mc-font);
+}
+
+/* ── Outer anchor ─────────────────────────────────────── */
+.mc-root {
+  position: fixed;
+  bottom: 20px;
+  z-index: 2147483000;
+  /* The iframe parent is sized to match the widget; this stays out of the
+   * way and just provides the fixed-positioning context. */
+}
+.mc-pos-bottom-right { right: 20px; }
+.mc-pos-bottom-left  { left: 20px; }
+
+/* ── Floating bubble (collapsed state) ────────────────── */
+.mc-bubble {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--mc-color);
+  color: var(--mc-color-fg);
+  border: none;
+  cursor: pointer;
+  box-shadow: var(--mc-shadow-bubble);
+  display: grid;
+  place-items: center;
+  transition: transform 0.18s var(--mc-anim), box-shadow 0.18s var(--mc-anim);
+}
+.mc-bubble:hover { transform: translateY(-2px) scale(1.04); box-shadow: 0 10px 22px rgba(15, 23, 42, 0.28); }
+.mc-bubble:active { transform: translateY(0) scale(0.97); }
+.mc-bubble:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--mc-color) 40%, transparent);
+  outline-offset: 3px;
+}
+.mc-bubble svg { width: 26px; height: 26px; display: block; }
+
+/* ── Chat panel (expanded state) ──────────────────────── */
+.mc-panel {
+  width: 360px;
+  height: 560px;
+  border-radius: var(--mc-radius-lg);
+  box-shadow: var(--mc-shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--mc-bg);
+  border: 1px solid color-mix(in srgb, var(--mc-text) 8%, transparent);
+  animation: mc-panel-in 0.24s var(--mc-anim);
+  transform-origin: bottom right;
+}
+.mc-pos-bottom-left .mc-panel { transform-origin: bottom left; }
+
+@keyframes mc-panel-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ── Header ───────────────────────────────────────────── */
+.mc-header {
+  background: var(--mc-color);
+  color: var(--mc-color-fg);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.mc-avatar {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.mc-avatar svg { width: 20px; height: 20px; color: var(--mc-color-fg); }
+.mc-header-text { flex: 1; line-height: 1.2; min-width: 0; }
+.mc-title { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+.mc-status {
+  font-size: 11.5px;
+  opacity: 0.85;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+}
+.mc-status::before {
+  content: '';
+  width: 7px; height: 7px;
+  background: #4ade80;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.25);
+}
+.mc-close {
+  background: rgba(255, 255, 255, 0.0);
+  border: none;
+  color: var(--mc-color-fg);
+  cursor: pointer;
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  transition: background 0.15s var(--mc-anim);
+}
+.mc-close:hover  { background: rgba(255, 255, 255, 0.15); }
+.mc-close svg    { width: 16px; height: 16px; }
+
+/* ── Messages list ────────────────────────────────────── */
+.mc-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--mc-bg-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scroll-behavior: smooth;
+}
+
+/* Thin custom scrollbar */
+.mc-messages::-webkit-scrollbar { width: 6px; }
+.mc-messages::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, 0.18); border-radius: 999px; }
+.mc-messages::-webkit-scrollbar-thumb:hover { background: rgba(15, 23, 42, 0.28); }
+
+.mc-msg-row { display: flex; max-width: 100%; }
+.mc-msg-row.user      { justify-content: flex-end; }
+.mc-msg-row.assistant { justify-content: flex-start; }
+
+.mc-msg {
+  padding: 9px 13px;
+  border-radius: var(--mc-radius-md);
+  max-width: 82%;
+  font-size: 13.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  animation: mc-msg-in 0.18s var(--mc-anim);
+}
+@keyframes mc-msg-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.mc-msg.user {
+  background: var(--mc-color);
+  color: var(--mc-color-fg);
+  border-bottom-right-radius: 4px;
+}
+.mc-msg.assistant {
+  background: var(--mc-bg);
+  color: var(--mc-text);
+  border: 1px solid var(--mc-border);
+  border-bottom-left-radius: 4px;
+}
+
+/* ── Tool note (between bubbles) ──────────────────────── */
+.mc-tool-note {
+  align-self: center;
+  font-size: 11.5px;
+  color: var(--mc-text-muted);
+  background: color-mix(in srgb, var(--mc-color) 8%, var(--mc-bg));
+  padding: 4px 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.mc-tool-note::before {
+  content: '';
+  width: 5px; height: 5px;
+  background: var(--mc-color);
+  border-radius: 50%;
+}
+
+/* ── Typing indicator (assistant is composing) ────────── */
+.mc-typing {
+  background: var(--mc-bg);
+  color: var(--mc-text-muted);
+  border: 1px solid var(--mc-border);
+  border-bottom-left-radius: 4px;
+  padding: 12px 14px;
+  border-radius: var(--mc-radius-md);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.mc-typing span {
+  width: 6px; height: 6px;
+  background: currentColor;
+  border-radius: 50%;
+  opacity: 0.35;
+  animation: mc-blink 1.2s infinite var(--mc-anim);
+}
+.mc-typing span:nth-child(2) { animation-delay: 0.15s; }
+.mc-typing span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes mc-blink {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40%           { opacity: 1;    transform: translateY(-2px); }
+}
+
+/* ── Input bar ────────────────────────────────────────── */
+.mc-inputbar {
+  padding: 12px;
+  border-top: 1px solid var(--mc-border);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: var(--mc-bg);
+}
+.mc-input {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--mc-border);
+  font-size: 13.5px;
+  outline: none;
+  color: var(--mc-text);
+  background: var(--mc-bg-soft);
+  transition: border-color 0.15s var(--mc-anim), background 0.15s var(--mc-anim), box-shadow 0.15s var(--mc-anim);
+}
+.mc-input::placeholder { color: var(--mc-text-muted); }
+.mc-input:focus {
+  border-color: var(--mc-color);
+  background: var(--mc-bg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc-color) 18%, transparent);
+}
+
+.mc-send {
+  width: 38px; height: 38px;
+  background: var(--mc-color);
+  color: var(--mc-color-fg);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: transform 0.15s var(--mc-anim), opacity 0.15s var(--mc-anim);
+  flex-shrink: 0;
+}
+.mc-send svg { width: 18px; height: 18px; }
+.mc-send:hover:not(:disabled) { transform: translateX(1px); }
+.mc-send:active:not(:disabled) { transform: scale(0.94); }
+.mc-send:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Footer/branding (subtle) ─────────────────────────── */
+.mc-footer {
+  text-align: center;
+  font-size: 10.5px;
+  color: var(--mc-text-muted);
+  padding: 6px 0 8px;
+  background: var(--mc-bg);
+  border-top: 1px solid var(--mc-border);
+  letter-spacing: 0.02em;
+}

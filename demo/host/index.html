@@ -1,12 +1,373 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Host App – MC Widget Demo</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Maintainer's Copilot — Demo Host</title>
+<style>
+  :root {
+    --c-text: #0f172a;
+    --c-muted: #64748b;
+    --c-border: #e5e7eb;
+    --c-bg: #f8fafc;
+    --c-card: #ffffff;
+    --c-accent: #4f46e5;
+    --c-accent-fg: #ffffff;
+    --c-error: #b91c1c;
+    --c-error-bg: #fef2f2;
+    --c-chip-bg: #eef2ff;
+    --c-chip-text: #3730a3;
+    --r-card: 14px;
+    --r-input: 10px;
+    --shadow: 0 8px 24px rgba(15, 23, 42, 0.08), 0 2px 6px rgba(15, 23, 42, 0.04);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--c-bg); color: var(--c-text);
+    font-family: var(--font);
+  }
+  header {
+    background: var(--c-card); border-bottom: 1px solid var(--c-border);
+    padding: 14px 24px; display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+  header .me { font-size: 13px; color: var(--c-muted); display: flex; gap: 12px; align-items: center; }
+  header .me button {
+    background: transparent; border: 1px solid var(--c-border); padding: 6px 12px;
+    border-radius: 8px; font-size: 12.5px; cursor: pointer; color: var(--c-text);
+  }
+  header .me button:hover { background: var(--c-bg); }
+
+  main { max-width: 880px; margin: 0 auto; padding: 32px 24px 80px; }
+
+  /* ── Login / Register card ──────────────────────── */
+  .auth {
+    max-width: 420px; margin: 60px auto 0;
+    background: var(--c-card); border-radius: var(--r-card); box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .auth h2 { margin: 0; padding: 22px 24px 4px; font-size: 19px; }
+  .auth p.sub { margin: 0; padding: 0 24px 18px; color: var(--c-muted); font-size: 13.5px; }
+  .tabs { display: flex; border-bottom: 1px solid var(--c-border); padding: 0 12px; }
+  .tabs button {
+    flex: 1; padding: 12px 8px; background: transparent; border: none;
+    color: var(--c-muted); cursor: pointer; font-size: 13.5px; font-weight: 500;
+    border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s;
+  }
+  .tabs button.active { color: var(--c-accent); border-bottom-color: var(--c-accent); }
+  form.auth-form { padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 12px; }
+  label { font-size: 12.5px; color: var(--c-muted); font-weight: 500; }
+  input[type=email], input[type=password], input[type=text] {
+    padding: 10px 12px; border-radius: var(--r-input); border: 1px solid var(--c-border);
+    font-size: 14px; font-family: var(--font); outline: none; color: var(--c-text);
+    background: var(--c-card); width: 100%;
+  }
+  input:focus { border-color: var(--c-accent); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18); }
+  button.primary {
+    padding: 11px 14px; background: var(--c-accent); color: var(--c-accent-fg);
+    border: none; border-radius: var(--r-input); font-size: 14px; font-weight: 500;
+    cursor: pointer; transition: transform 0.1s, opacity 0.1s;
+  }
+  button.primary:hover:not(:disabled) { transform: translateY(-1px); }
+  button.primary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  .error { color: var(--c-error); background: var(--c-error-bg); padding: 8px 12px; border-radius: 8px; font-size: 13px; }
+  .info  { color: var(--c-muted); font-size: 13px; }
+
+  /* ── Widget chooser grid ────────────────────────── */
+  .chooser h2 { margin: 0 0 4px; font-size: 22px; letter-spacing: -0.01em; }
+  .chooser p.sub { margin: 0 0 24px; color: var(--c-muted); font-size: 14px; max-width: 600px; }
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px;
+  }
+  .card {
+    background: var(--c-card); border: 1px solid var(--c-border); border-radius: var(--r-card);
+    padding: 18px; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .card:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: var(--c-accent); }
+  .card .swatch {
+    width: 28px; height: 28px; border-radius: 8px;
+    flex-shrink: 0;
+  }
+  .card .row1 { display: flex; gap: 10px; align-items: center; }
+  .card h3 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+  .card .desc {
+    font-size: 13px; color: var(--c-muted); line-height: 1.45; flex: 1; min-height: 36px;
+  }
+  .chips { display: flex; gap: 5px; flex-wrap: wrap; }
+  .chip {
+    background: var(--c-chip-bg); color: var(--c-chip-text); padding: 3px 9px;
+    border-radius: 999px; font-size: 11px; font-weight: 500;
+  }
+  .footer-action {
+    margin-top: 6px; font-size: 12.5px; color: var(--c-accent); font-weight: 500;
+  }
+
+  /* ── Active widget banner ───────────────────────── */
+  .active-banner {
+    background: var(--c-card); border: 1px solid var(--c-border); border-radius: var(--r-card);
+    padding: 14px 18px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between;
+  }
+  .active-banner .label { font-size: 13.5px; color: var(--c-muted); }
+  .active-banner strong { color: var(--c-text); font-weight: 600; }
+  .active-banner button {
+    background: transparent; border: 1px solid var(--c-border); padding: 7px 14px;
+    border-radius: 8px; font-size: 13px; cursor: pointer; color: var(--c-text);
+  }
+  .active-banner button:hover { background: var(--c-bg); }
+</style>
 </head>
 <body>
-  <h1>Demo Host Page</h1>
-  <p>Widget below:</p>
-  <!-- Widget will be loaded via loader script -->
-  <script src="http://localhost:8080/widget.js" data-widget-id="demo-widget-id"></script>
+
+<header>
+  <h1>Maintainer's Copilot · Demo</h1>
+  <div class="me" id="me-area"></div>
+</header>
+
+<main id="main">
+  <!-- ── Login / Register ─────────────────────────── -->
+  <section class="auth" id="auth-section">
+    <h2 id="auth-title">Sign in to continue</h2>
+    <p class="sub">This demo is gated. Sign in or create an account to pick a widget to try.</p>
+    <div class="tabs">
+      <button id="tab-login" class="active" type="button">Sign in</button>
+      <button id="tab-register" type="button">Create account</button>
+    </div>
+
+    <form id="login-form" class="auth-form">
+      <div><label for="login-email">Email</label><input id="login-email" type="email" required></div>
+      <div><label for="login-password">Password</label><input id="login-password" type="password" required></div>
+      <div id="login-error" class="error" style="display:none"></div>
+      <button class="primary" type="submit">Sign in</button>
+    </form>
+
+    <form id="register-form" class="auth-form" style="display:none">
+      <div><label for="reg-email">Email</label><input id="reg-email" type="email" required></div>
+      <div><label for="reg-password">Password (min 8 chars)</label><input id="reg-password" type="password" minlength="8" required></div>
+      <div id="register-error" class="error" style="display:none"></div>
+      <button class="primary" type="submit">Create account & sign in</button>
+    </form>
+  </section>
+
+  <!-- ── Chooser ──────────────────────────────────── -->
+  <section class="chooser" id="chooser-section" style="display:none">
+    <div class="active-banner" id="active-banner" style="display:none">
+      <span class="label">Currently embedded: <strong id="active-widget-name"></strong></span>
+      <button id="change-widget-btn" type="button">Pick another</button>
+    </div>
+    <h2>Pick a chat widget</h2>
+    <p class="sub">Each widget is configured by an admin with its own theme, greeting, and set of capabilities. Click one to embed it on this page.</p>
+    <div id="grid" class="grid"></div>
+    <p id="empty" class="info" style="display:none">No active widgets configured. Ask an admin to enable one.</p>
+  </section>
+</main>
+
+<script>
+const API = '/api';                    // proxied by nginx to the api service
+const TOKEN_KEY  = 'mc_demo_token';
+const EMAIL_KEY  = 'mc_demo_email';
+const WIDGET_KEY = 'mc_demo_widget';   // last chosen widget_id (per-tab pref)
+
+// ── State helpers ────────────────────────────────
+const getToken = () => localStorage.getItem(TOKEN_KEY);
+const getEmail = () => localStorage.getItem(EMAIL_KEY);
+
+function setSession(token, email) {
+  localStorage.setItem(TOKEN_KEY, token);
+  if (email) localStorage.setItem(EMAIL_KEY, email);
+}
+function clearSession() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(EMAIL_KEY);
+  localStorage.removeItem(WIDGET_KEY);
+}
+
+// ── Auth API ─────────────────────────────────────
+async function apiLogin(email, password) {
+  const body = new URLSearchParams({ username: email, password });
+  const r = await fetch(`${API}/auth/jwt/login`, { method: 'POST', body });
+  if (!r.ok) throw new Error('Invalid email or password.');
+  const data = await r.json();
+  return data.access_token;
+}
+async function apiRegister(email, password) {
+  const r = await fetch(`${API}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!r.ok) {
+    let msg = 'Registration failed.';
+    try {
+      const j = await r.json();
+      if (j.detail && typeof j.detail === 'string') msg = j.detail;
+      else if (j.detail) msg = JSON.stringify(j.detail);
+    } catch (_) {}
+    throw new Error(msg);
+  }
+}
+async function apiWidgets() {
+  const r = await fetch(`${API}/widgets`);
+  if (!r.ok) throw new Error('Could not load widgets.');
+  return (await r.json()).widgets || [];
+}
+
+// ── Rendering ────────────────────────────────────
+function renderMe() {
+  const el = document.getElementById('me-area');
+  const email = getEmail();
+  if (!email) { el.innerHTML = ''; return; }
+  el.innerHTML = `<span>${email}</span><button id="logout-btn" type="button">Log out</button>`;
+  document.getElementById('logout-btn').addEventListener('click', () => {
+    clearSession();
+    window.location.href = '/';
+  });
+}
+
+function showSection(which) {
+  document.getElementById('auth-section').style.display = which === 'auth' ? '' : 'none';
+  document.getElementById('chooser-section').style.display = which === 'chooser' ? '' : 'none';
+}
+
+function renderChooser(widgets, activeId) {
+  const grid = document.getElementById('grid');
+  const empty = document.getElementById('empty');
+  grid.innerHTML = '';
+  if (!widgets.length) { empty.style.display = ''; return; }
+  empty.style.display = 'none';
+
+  for (const w of widgets) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    const chipsHtml = (w.enabled_tools || []).map(t => `<span class="chip">${t}</span>`).join('');
+    const cta = activeId === w.widget_id ? 'Currently active ·' : 'Try this widget →';
+    card.innerHTML = `
+      <div class="row1">
+        <div class="swatch" style="background:${w.color || '#4f46e5'}"></div>
+        <h3>${escapeHtml(w.name || w.widget_id)}</h3>
+      </div>
+      <div class="desc">${escapeHtml(w.description || 'No description provided.')}</div>
+      <div class="chips">${chipsHtml || '<span class="chip" style="opacity:.6">no tools</span>'}</div>
+      <div class="footer-action">${cta}</div>
+    `;
+    card.addEventListener('click', () => pickWidget(w.widget_id));
+    grid.appendChild(card);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  }[c]));
+}
+
+// ── Widget loading ───────────────────────────────
+function pickWidget(widgetId) {
+  localStorage.setItem(WIDGET_KEY, widgetId);
+  // Full reload — each loader.js call sets up an iframe; we'd rather start
+  // from a clean DOM than try to surgically replace an existing widget.
+  window.location.search = '?widget=' + encodeURIComponent(widgetId);
+}
+
+function injectWidgetScript(widgetId) {
+  const s = document.createElement('script');
+  s.src = 'http://localhost:8080/widget.js';
+  s.dataset.widgetId = widgetId;
+  document.body.appendChild(s);
+}
+
+function showActiveBanner(widgets, activeId) {
+  const banner = document.getElementById('active-banner');
+  const nameEl = document.getElementById('active-widget-name');
+  const found = widgets.find(w => w.widget_id === activeId);
+  if (!found) { banner.style.display = 'none'; return; }
+  nameEl.textContent = `${found.name || found.widget_id} (${found.widget_id})`;
+  banner.style.display = '';
+  document.getElementById('change-widget-btn').onclick = () => {
+    localStorage.removeItem(WIDGET_KEY);
+    window.location.href = '/';
+  };
+}
+
+// ── Page boot ────────────────────────────────────
+async function boot() {
+  renderMe();
+
+  const token = getToken();
+  if (!token) {
+    showSection('auth');
+    wireAuthForms();
+    return;
+  }
+
+  // Authenticated — show chooser
+  showSection('chooser');
+  let widgets = [];
+  try { widgets = await apiWidgets(); }
+  catch (e) { document.getElementById('grid').innerHTML = `<p class="info">${e.message}</p>`; return; }
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const requested = urlParams.get('widget');
+  if (requested && widgets.some(w => w.widget_id === requested)) {
+    showActiveBanner(widgets, requested);
+    injectWidgetScript(requested);
+  }
+  renderChooser(widgets, requested);
+}
+
+function wireAuthForms() {
+  const tabLogin = document.getElementById('tab-login');
+  const tabRegister = document.getElementById('tab-register');
+  const formLogin = document.getElementById('login-form');
+  const formRegister = document.getElementById('register-form');
+
+  function setTab(which) {
+    tabLogin.classList.toggle('active', which === 'login');
+    tabRegister.classList.toggle('active', which === 'register');
+    formLogin.style.display = which === 'login' ? '' : 'none';
+    formRegister.style.display = which === 'register' ? '' : 'none';
+  }
+  tabLogin.addEventListener('click', () => setTab('login'));
+  tabRegister.addEventListener('click', () => setTab('register'));
+
+  formLogin.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const err = document.getElementById('login-error');
+    err.style.display = 'none';
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    try {
+      const token = await apiLogin(email, password);
+      setSession(token, email);
+      window.location.href = '/';
+    } catch (e) {
+      err.textContent = e.message;
+      err.style.display = '';
+    }
+  });
+
+  formRegister.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const err = document.getElementById('register-error');
+    err.style.display = 'none';
+    const email = document.getElementById('reg-email').value.trim();
+    const password = document.getElementById('reg-password').value;
+    try {
+      await apiRegister(email, password);
+      const token = await apiLogin(email, password);
+      setSession(token, email);
+      window.location.href = '/';
+    } catch (e) {
+      err.textContent = e.message;
+      err.style.display = '';
+    }
+  });
+}
+
+boot();
+</script>
+
 </body>
 </html>

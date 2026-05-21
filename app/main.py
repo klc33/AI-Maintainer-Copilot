@@ -11,7 +11,8 @@ from app.infra.vault import vault, VaultError
 from app.infra.db import engine, Base
 from app.api.error_handlers import register_exception_handlers
 from app.api.chat import router as chat_router
-from app.api.widget import router as widget_router
+from app.api.widget import router as widget_router, catalog_router as widget_catalog_router
+from app.api.widget_admin import router as widget_admin_router
 
 
 logger = structlog.get_logger()
@@ -23,14 +24,27 @@ async def check_vault():
     logger.info("Vault healthy")
 
 async def check_db_migration():
+    """Verify the DB is at one of Alembic's current head revisions.
+
+    Previously this pinned a string literal ("003") which had to be hand-
+    bumped on every migration. Reading heads from the script directory
+    means new migrations boot cleanly without a code edit."""
     from sqlalchemy import text
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    cfg = Config("/app/alembic.ini")
+    script = ScriptDirectory.from_config(cfg)
+    heads = set(script.get_heads())
+
     async with engine.connect() as conn:
         res = await conn.execute(text("SELECT version_num FROM alembic_version"))
         current = res.scalar()
-        expected = "003"   # latest migration
-        if current != expected:
-            raise VaultError(f"DB migration not at head. Current: {current}, expected: {expected}")
-    logger.info("Database migration at head")
+        if current not in heads:
+            raise VaultError(
+                f"DB migration not at head. Current: {current}, expected one of: {sorted(heads)}"
+            )
+    logger.info("Database migration at head", current=current)
 
 async def check_jwt_secret():
     """Load JWT signing key from Vault and inject it into the auth module."""
@@ -85,6 +99,8 @@ app.include_router(memory_router)
 app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(widget_router)
+app.include_router(widget_catalog_router)
+app.include_router(widget_admin_router)
 
 
 

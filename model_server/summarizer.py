@@ -2,7 +2,13 @@
 import os
 from groq import Groq
 
-client = Groq(api_key=os.environ["GROQ_API_KEY"])
+_client: Groq | None = None
+
+def _get_client() -> Groq:
+    global _client
+    if _client is None:
+        _client = Groq(api_key=os.environ["GROQ_API_KEY"])
+    return _client
 
 def summarize_thread(text: str) -> str:
     prompt = (
@@ -11,7 +17,7 @@ def summarize_thread(text: str) -> str:
         "Be concise, max 80 words total.\n\n"
         f"{text[:8000]}"   # truncate to 8k chars
     )
-    response = client.chat.completions.create(
+    response = _get_client().chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[{"role": "user", "content": prompt}],
         temperature=0,

@@ -2,12 +2,18 @@ import streamlit as st
 import requests
 import json
 import httpx
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from _auth import sidebar_logout, require_admin
 
 API_URL = "http://api:8000"
 
 if not st.session_state.get("token"):
     st.warning("Please log in first.")
     st.stop()
+
+require_admin()
+sidebar_logout()
 
 st.title("Chat")
 

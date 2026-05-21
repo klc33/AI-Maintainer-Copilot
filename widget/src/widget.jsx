@@ -1,179 +1,275 @@
+// widget.jsx — embedded chat widget (Preact + vanilla CSS).
+//
+// Boot sequence:
+//   1. The embed page (served by api /widget/{id}/embed) injects widget_id,
+//      pre-fetched config, and a session JWT onto window, then dispatches
+//      the 'mc:ready' event.
+//   2. mountWidget() reads window.__MC_CONFIG__, applies theme variables to
+//      #mc-widget-root, and renders <Widget />.
+//   3. On every open/close + on first mount the widget posts an mc:layout
+//      message to the parent loader iframe so it can resize/move itself.
 import { render } from 'preact';
 import { useState, useRef, useEffect } from 'preact/hooks';
+// ?inline tells Vite to give us the compiled CSS as a string at build time
+// (instead of emitting a separate .css file). We inject it into the document
+// at mount, so the entire widget ships as one widget.js file.
+import cssText from './widget.css?inline';
 
-function Widget() {
+// Iframe dimensions for collapsed (bubble only) and expanded (panel) states.
+const COLLAPSED = { width: 96,  height: 96  };  // bubble 56 + 20 margin x2
+const EXPANDED  = { width: 400, height: 600 };  // panel 360x560 + 20 margin x2
+const CHAT_PATH = '/widget/chat';
+
+// ── SVG icons (no external assets so the bundle stays single-file) ──
+const IconChat = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+  </svg>
+);
+const IconClose = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+  </svg>
+);
+const IconSend = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+  </svg>
+);
+const IconBot = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="11" width="18" height="10" rx="2"/>
+    <circle cx="12" cy="5" r="2"/><path d="M12 7v4"/>
+    <line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/>
+  </svg>
+);
+
+function postLayout({ width, height, position }) {
+  try {
+    window.parent.postMessage({ type: 'mc:layout', width, height, position }, '*');
+  } catch (e) { /* no parent in standalone dev mode */ }
+}
+
+function injectStyles() {
+  if (document.getElementById('mc-widget-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'mc-widget-styles';
+  style.textContent = cssText;
+  document.head.appendChild(style);
+}
+
+function applyTheme(theme = {}) {
+  const root = document.getElementById('mc-widget-root');
+  if (!root) return;
+  if (theme.color) root.style.setProperty('--mc-color', theme.color);
+}
+
+function positionClass(theme = {}) {
+  return theme.position === 'bottom-left' ? 'mc-pos-bottom-left' : 'mc-pos-bottom-right';
+}
+
+function Widget({ config }) {
+  const theme = config?.theme || {};
+  const greeting = theme.greeting || '';
+  const name = config?.name || 'Chat';
+
   const [open, setOpen] = useState(false);
   const [msg, setMsg] = useState('');
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(
+    greeting ? [{ role: 'assistant', content: greeting }] : []
+  );
   const [loading, setLoading] = useState(false);
-  const chatRef = useRef(null);
+  // True while we're waiting for the first token from the server (nothing
+  // streamed yet) — drives the typing-dots indicator.
+  const [awaiting, setAwaiting] = useState(false);
+
+  const messagesRef = useRef(null);
+  const inputRef = useRef(null);
+
+  // Tell the parent iframe to resize + pin to the configured corner.
+  useEffect(() => {
+    const dims = open ? EXPANDED : COLLAPSED;
+    postLayout({
+      width: dims.width,
+      height: dims.height,
+      position: theme.position === 'bottom-left' ? 'bottom-left' : 'bottom-right',
+    });
+  }, [open, theme.position]);
+
+  // Auto-focus the input whenever the panel opens.
+  useEffect(() => {
+    if (open && inputRef.current) inputRef.current.focus();
+  }, [open]);
+
+  // Auto-scroll to bottom on new messages.
+  useEffect(() => {
+    const el = messagesRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages, awaiting]);
 
   const sendMessage = async () => {
-    if (!msg.trim()) return;
-    const userMsg = msg;
+    const text = msg.trim();
+    if (!text || loading) return;
     setMsg('');
-    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    setMessages(prev => [...prev, { role: 'user', content: text }]);
     setLoading(true);
+    setAwaiting(true);
+
+    let assistantMsg = '';
+    const appendAssistant = (chunk) => {
+      assistantMsg += chunk;
+      setAwaiting(false); // first token arrived
+      setMessages(prev => {
+        const last = prev[prev.length - 1];
+        if (last && last.role === 'assistant' && last.streaming) {
+          return [...prev.slice(0, -1), { ...last, content: assistantMsg }];
+        }
+        return [...prev, { role: 'assistant', content: assistantMsg, streaming: true }];
+      });
+    };
 
     try {
-      const response = await fetch('/api/chat/message', {
+      const resp = await fetch(CHAT_PATH, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${window.__MC_SESSION_TOKEN__}`,
         },
         body: JSON.stringify({
-          message: userMsg,
+          message: text,
           conversation_id: 'widget_session',
         }),
       });
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let assistantMsg = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
+      if (!resp.ok || !resp.body) {
+        appendAssistant(`(error: ${resp.status})`);
+      } else {
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          let nl;
+          while ((nl = buf.indexOf('\n\n')) !== -1) {
+            const frame = buf.slice(0, nl);
+            buf = buf.slice(nl + 2);
+            if (!frame.startsWith('data: ')) continue;
             try {
-              const data = JSON.parse(line.slice(6));
-              if (data.type === 'token') {
-                assistantMsg += data.content;
-                setMessages(prev => {
-                  const last = prev[prev.length - 1];
-                  if (last?.role === 'assistant') {
-                    last.content = assistantMsg;
-                    return [...prev];
-                  }
-                  return [...prev, { role: 'assistant', content: assistantMsg }];
-                });
+              const evt = JSON.parse(frame.slice(6));
+              if (evt.type === 'token') appendAssistant(evt.content);
+              else if (evt.type === 'tool_call_start') {
+                setMessages(prev => [...prev, { role: 'tool', content: `Using ${evt.name}…` }]);
               }
-            } catch (e) {}
+            } catch (_) { /* malformed frame */ }
           }
         }
       }
     } catch (e) {
-      console.error(e);
+      appendAssistant(`(network error: ${e.message})`);
+    } finally {
+      setMessages(prev => prev.map(m => m.streaming ? { ...m, streaming: false } : m));
+      setLoading(false);
+      setAwaiting(false);
     }
-    setLoading(false);
   };
 
-  const style = {
-    position: 'fixed',
-    bottom: '20px',
-    right: '20px',
-    zIndex: 9999,
-    fontFamily: 'sans-serif',
-  };
-
+  // ── Collapsed bubble ─────────────────────────────────
   if (!open) {
     return (
-      <div style={style}>
-        <button
-          onClick={() => setOpen(true)}
-          style={{
-            width: '56px',
-            height: '56px',
-            borderRadius: '50%',
-            backgroundColor: '#4f46e5',
-            color: 'white',
-            border: 'none',
-            cursor: 'pointer',
-            fontSize: '24px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
-          }}
-        >
-          💬
+      <div class={`mc-root ${positionClass(theme)}`}>
+        <button class="mc-bubble" onClick={() => setOpen(true)} aria-label="Open chat">
+          <IconChat />
         </button>
       </div>
     );
   }
 
+  // ── Expanded panel ───────────────────────────────────
   return (
-    <div
-      style={{
-        ...style,
-        width: '360px',
-        height: '500px',
-        borderRadius: '12px',
-        boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-        backgroundColor: 'white',
-      }}
-    >
-      <div
-        style={{
-          backgroundColor: '#4f46e5',
-          color: 'white',
-          padding: '12px',
-          display: 'flex',
-          justifyContent: 'space-between',
-        }}
-      >
-        <strong>Copilot</strong>
-        <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer' }}>✕</button>
-      </div>
-      <div ref={chatRef} style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
-        {messages.map((m, i) => (
-          <div key={i} style={{ marginBottom: '8px', textAlign: m.role === 'user' ? 'right' : 'left' }}>
-            <div
-              style={{
-                display: 'inline-block',
-                padding: '8px 12px',
-                borderRadius: '12px',
-                maxWidth: '80%',
-                backgroundColor: m.role === 'user' ? '#e0e7ff' : '#f1f5f9',
-                color: 'black',
-                fontSize: '14px',
-              }}
-            >
-              {m.content}
-            </div>
+    <div class={`mc-root ${positionClass(theme)}`}>
+      <div class="mc-panel" role="dialog" aria-label={name}>
+        <div class="mc-header">
+          <div class="mc-avatar"><IconBot /></div>
+          <div class="mc-header-text">
+            <div class="mc-title">{name}</div>
+            <div class="mc-status">Online · typically replies instantly</div>
           </div>
-        ))}
-      </div>
-      <div style={{ padding: '12px', borderTop: '1px solid #eee', display: 'flex' }}>
-        <input
-          type="text"
-          value={msg}
-          onInput={e => setMsg(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && sendMessage()}
-          placeholder="Ask a question..."
-          disabled={loading}
-          style={{
-            flex: 1,
-            padding: '8px',
-            borderRadius: '8px',
-            border: '1px solid #ddd',
-            fontSize: '14px',
-          }}
-        />
-        <button
-          onClick={sendMessage}
-          disabled={loading}
-          style={{
-            marginLeft: '8px',
-            padding: '8px 16px',
-            backgroundColor: '#4f46e5',
-            color: 'white',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: 'pointer',
-          }}
-        >
-          Send
-        </button>
+          <button class="mc-close" onClick={() => setOpen(false)} aria-label="Close chat">
+            <IconClose />
+          </button>
+        </div>
+
+        <div class="mc-messages" ref={messagesRef}>
+          {messages.map((m, i) => {
+            if (m.role === 'tool') {
+              return <div key={i} class="mc-tool-note">{m.content}</div>;
+            }
+            return (
+              <div key={i} class={`mc-msg-row ${m.role}`}>
+                <div class={`mc-msg ${m.role}`}>{m.content}</div>
+              </div>
+            );
+          })}
+          {awaiting && (
+            <div class="mc-msg-row assistant">
+              <div class="mc-typing" aria-label="Assistant is typing">
+                <span></span><span></span><span></span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div class="mc-inputbar">
+          <input
+            class="mc-input"
+            ref={inputRef}
+            type="text"
+            value={msg}
+            onInput={e => setMsg(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && sendMessage()}
+            placeholder="Ask a question…"
+            disabled={loading}
+            aria-label="Message"
+          />
+          <button
+            class="mc-send"
+            onClick={sendMessage}
+            disabled={loading || !msg.trim()}
+            aria-label="Send message"
+          >
+            <IconSend />
+          </button>
+        </div>
+
+        <div class="mc-footer">Powered by Maintainer's Copilot</div>
       </div>
     </div>
   );
 }
 
-const root = document.getElementById('mc-widget-root');
-if (root) {
-  render(<Widget />, root);
+function mountWidget() {
+  const root = document.getElementById('mc-widget-root');
+  if (!root) return;
+  injectStyles();
+  const config = window.__MC_CONFIG__ || { name: 'Chat', theme: {} };
+  applyTheme(config.theme || {});
+  render(<Widget config={config} />, root);
+}
+
+// The embed page dispatches mc:ready once config + session are loaded.
+// If we somehow miss the event (script raced), poll briefly and mount once
+// __MC_CONFIG__ is available; mount blind after 2s as a last resort.
+if (window.__MC_CONFIG__) {
+  mountWidget();
+} else {
+  let mounted = false;
+  const mountOnce = () => { if (!mounted) { mounted = true; mountWidget(); } };
+  window.addEventListener('mc:ready', mountOnce);
+  let waited = 0;
+  const tick = setInterval(() => {
+    waited += 100;
+    if (window.__MC_CONFIG__) { clearInterval(tick); mountOnce(); }
+    else if (waited >= 2000) { clearInterval(tick); mountOnce(); }
+  }, 100);
 }

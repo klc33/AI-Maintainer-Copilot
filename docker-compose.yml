@@ -144,18 +144,32 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MODEL_PATH: /app/models/classifier/v1
+      # Vault — used by main.py startup to fetch GROQ_API_KEY for /summarize.
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_TOKEN?err}
+      # Postgres connection for /rag/search (pgvector chunks table).
+      # Uses the same +asyncpg-prefixed URL as the api; rag_retrieval.py
+      # strips the prefix before passing to asyncpg.create_pool.
+      DATABASE_URL: postgresql+asyncpg://copilot:changeme@db:5432/copilot
     volumes:
       - ./models/classifier/v1:/app/models/classifier/v1:ro
+      # Persistent HuggingFace cache — avoids re-downloading bge-base
+      # (~440 MB) + bge-reranker (~280 MB) on every container start.
+      - hf_cache:/root/.cache/huggingface
     depends_on:
+      db:
+        condition: service_healthy
       minio:
         condition: service_healthy
       vault:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      # curl is not in the python:3.11-slim image; use the venv's python.
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8001/health', timeout=3).status == 200 else 1)"]
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 6
+      start_period: 180s
 
   # ── Streamlit chatbot/admin UI ──
   streamlit:
@@ -196,3 +210,4 @@ services:
 volumes:
   pgdata:
   minio_data:
+  hf_cache:

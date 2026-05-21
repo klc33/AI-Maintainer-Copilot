@@ -1,0 +1,120 @@
+name: Evals
+
+# Run on every push and PR. eval_report.json is uploaded as a workflow
+# artifact and compared against the most recent green run on `main`.
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    name: RAG + Classification eval suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: copilot
+          POSTGRES_PASSWORD: changeme
+          POSTGRES_DB: copilot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U copilot -d copilot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://copilot:changeme@localhost:5432/copilot
+      # Make the CI eval use the small fixture corpus, not the prod golden set.
+      RAG_GOLDEN_PATH: evals/fixtures/golden.jsonl
+      CLASSIFICATION_TEST_CSV: evals/fixtures/classification_test.csv
+      # Force CPU-only torch wheels (already configured via the [[tool.uv.index]]
+      # pytorch-cpu entry in pyproject) and avoid CUDA preflight in transformers.
+      CUDA_VISIBLE_DEVICES: ""
+      # uv-managed Python pin (pyproject says >=3.12 which would otherwise
+      # let uv pick 3.13 where blis has no wheel).
+      UV_PYTHON: "3.12"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      # bge-base + bge-reranker total ~720 MB. Cache across runs so only the
+      # very first build pays the download cost.
+      - name: Cache HuggingFace model files
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ runner.os }}-bge-base-v1.5-bge-reranker-base-v1
+          restore-keys: |
+            hf-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          uv sync --frozen --group api --group model-server --group evals --no-dev
+
+      - name: Run DB migrations
+        run: uv run alembic upgrade head
+
+      - name: Ingest fixture chunks
+        run: uv run python evals/ingest_fixtures.py
+
+      - name: Run eval suites
+        id: run_evals
+        run: uv run python evals/run_all.py --output eval_report.json
+
+      - name: Upload current eval report as workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: eval_report.json
+          retention-days: 90
+
+      # ── Diff against the previous green build ──
+      - name: Download previous green report from main
+        id: previous
+        # Don't fail the workflow if no previous artifact exists yet (first run).
+        continue-on-error: true
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          name: eval-report
+          branch: main
+          workflow_conclusion: success
+          if_no_artifact_found: warn
+          path: prev
+
+      - name: Show previous report (if any)
+        if: steps.previous.outcome == 'success'
+        run: |
+          echo "Previous report:"
+          cat prev/eval_report.json || true
+
+      - name: Diff vs thresholds (blocks merge on regression)
+        run: |
+          if [ -f prev/eval_report.json ]; then
+            uv run python evals/diff.py \
+              --current eval_report.json \
+              --previous prev/eval_report.json \
+              --thresholds eval_thresholds.yaml
+          else
+            echo "No previous green report — checking absolute thresholds only."
+            uv run python evals/diff.py \
+              --current eval_report.json \
+              --thresholds eval_thresholds.yaml
+          fi

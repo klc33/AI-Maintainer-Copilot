@@ -143,10 +143,26 @@ async def execute_tool(name: str, args: dict, user_id: str, conversation_id: str
             span.update(output=error_result)
             return error_result
 
-async def stream_chat(user_message: str, user_id: str, conversation_id: str):
-    """Generator yielding SSE events for a single chat turn, with Langfuse v4 tracing."""
+async def stream_chat(
+    user_message: str,
+    user_id: str,
+    conversation_id: str,
+    enabled_tools: list[str] | None = None,
+):
+    """Generator yielding SSE events for a single chat turn, with Langfuse v4 tracing.
+
+    enabled_tools: if provided, restricts which tools the LLM can call (used by
+    the widget chat path so different embed sites can have different tool
+    capabilities). None means "all tools" (the authed Streamlit chat path)."""
     groq_client = get_groq_client()
     lf_client = get_langfuse_client()
+
+    # Filter the global TOOLS list by name when an allowlist is supplied.
+    if enabled_tools is None:
+        tools_to_use = TOOLS
+    else:
+        allowed = set(enabled_tools)
+        tools_to_use = [t for t in TOOLS if t["function"]["name"] in allowed]
 
     # ── Recall long‑term memories (observation) ───────
     with lf_client.start_as_current_observation(
@@ -181,15 +197,20 @@ async def stream_chat(user_message: str, user_id: str, conversation_id: str):
         input=messages,
         model="llama-3.3-70b-versatile",
     ) as llm_span:
-        response = groq_client.chat.completions.create(
+        # If the allowlist filtered everything out (or was empty), don't send
+        # an empty tools array — Groq rejects it. Just skip tool-calling for
+        # this turn so the LLM falls through to the plain streaming reply.
+        first_call_kwargs = dict(
             model="llama-3.3-70b-versatile",
             messages=messages,
-            tools=TOOLS,
-            tool_choice="auto",
             temperature=0.2,
             max_tokens=1024,
             stream=False,
         )
+        if tools_to_use:
+            first_call_kwargs["tools"] = tools_to_use
+            first_call_kwargs["tool_choice"] = "auto"
+        response = groq_client.chat.completions.create(**first_call_kwargs)
         llm_span.update(output=response.choices[0].message.model_dump())
 
     msg = response.choices[0].message
@@ -255,6 +276,13 @@ async def stream_chat(user_message: str, user_id: str, conversation_id: str):
     yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
     # ── Store turn in Redis (short‑term) ──────────────
+    # Persist BOTH the user message and the assistant's final answer.
+    # Previously only the user message was stored, so on every subsequent
+    # turn the LLM would re-process old user requests ("remember my name")
+    # with no record of having handled them, triggering duplicate tool calls
+    # (e.g. write_memory firing 11 times for the same fact).
     await redis_client.rpush(history_key, json.dumps({"role": "user", "content": user_message}))
+    if full_answer:
+        await redis_client.rpush(history_key, json.dumps({"role": "assistant", "content": full_answer}))
     await redis_client.ltrim(history_key, -20, -1)
     await redis_client.expire(history_key, 86400)

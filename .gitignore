@@ -29,6 +29,16 @@ vault_token
 .pydevproject
 .settings/
 
+# ── Claude Code / Anthropic ──
+# Per-developer Claude Code settings, session state, memory, and any
+# project-local Claude files. These are personal to whoever's running the
+# tool and shouldn't be shared via the repo.
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.anthropic/
+.claude-code/
+
 # ── Testing & Coverage ──
 .pytest_cache/
 htmlcov/

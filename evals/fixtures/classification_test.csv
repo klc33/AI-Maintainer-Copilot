@@ -1,0 +1,17 @@
+id,title,body,label
+1,"terraform apply panics with nil pointer dereference","On Terraform 1.6.4, running apply against an AWS module panics with a nil pointer in the AWS provider plugin. Stack trace below. Steps to reproduce attached.",bug
+2,"AWS S3 bucket destroy hangs forever","Calling terraform destroy on an S3 bucket with versioning enabled hangs indefinitely. Logs show the provider polling for completion but never receiving a response.",bug
+3,"Plan crashes when module has unset optional variable","If a child module declares an optional variable without a default, plan crashes instead of reporting a clear error message.",bug
+4,"terraform init fails with 'invalid provider hash'","Suddenly terraform init refuses to start, claiming the provider hash in the lock file is invalid. Clearing the .terraform directory does not help.",bug
+5,"Provider for newer Kubernetes versions","Please add support for Kubernetes 1.30 to the official kubernetes provider. The current version errors out on the new API.",feature
+6,"Support importing existing AWS resources by ARN","It would be helpful if terraform import accepted ARN directly instead of requiring the resource-specific ID format for AWS.",feature
+7,"Allow plan output in JSON to a file","terraform plan -out=plan.tfplan saves the binary format. Add -json-out=plan.json to save a human-readable JSON plan directly.",feature
+8,"Add native Helm release support to Kubernetes provider","Currently we use the separate helm provider. It would be nice if the kubernetes provider supported helm releases natively as a resource type.",feature
+9,"Document the new for_each on modules","The for_each meta-argument on modules was added in 0.13 but the registry documentation still only mentions count.",docs
+10,"Clarify state migration steps in 0.13 upgrade guide","The upgrade guide skips the part where you need to run terraform 0.13upgrade. Add a step-by-step example.",docs
+11,"Update docs: backend partial configuration example","The backend partial configuration example in the docs uses a deprecated argument. Please refresh.",docs
+12,"Typo in resource provisioner remote-exec docs","The example in remote-exec docs has a typo: 'inine' should be 'inline'.",docs
+13,"How to share state between two workspaces?","I have a network workspace and an apps workspace. How do I expose VPC IDs from the network workspace to apps? Is data.terraform_remote_state still the recommended way?",question
+14,"Recommended pattern for multi-account AWS deployments?","We have ~20 AWS accounts. Looking for the official pattern: one workspace per account, one repo per account, or one big config with assume_role per account?",question
+15,"Can I use count and for_each on the same resource?","The docs say count and for_each are mutually exclusive on a single resource, but I see examples online that mix them. Which is correct?",question
+16,"Best way to migrate from local backend to S3 backend?","I have ~300 resources in a local state file. What is the safest path to migrate to an S3 backend without downtime or duplicate resource creation?",question

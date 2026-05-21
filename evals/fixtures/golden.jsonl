@@ -1,0 +1,6 @@
+{"question": "What does terraform init do?", "ideal_answer": "terraform init initializes a working directory, downloads providers, sets up the backend, and installs modules.", "chunk_ids": [2]}
+{"question": "How do I enable state locking in Terraform?", "ideal_answer": "Use a remote backend that supports locking, such as S3 + DynamoDB or Terraform Cloud. Terraform acquires the lock automatically on writes.", "chunk_ids": [4]}
+{"question": "What is a Terraform provider?", "ideal_answer": "A provider is a plugin that interacts with a specific cloud or service API. Resources belong to a single provider.", "chunk_ids": [5]}
+{"question": "How do I recover from a stuck state lock after CTRL-C?", "ideal_answer": "Run terraform force-unlock with the lock ID.", "chunk_ids": [8]}
+{"question": "Why does terraform plan show a phantom diff for tags?", "ideal_answer": "AWS returns tag keys with inconsistent casing. Use ignore_changes lifecycle block on the tags attribute.", "chunk_ids": [10]}
+{"question": "What is the difference between terraform plan and apply?", "ideal_answer": "plan shows what would change without applying; apply executes the change.", "chunk_ids": [3]}

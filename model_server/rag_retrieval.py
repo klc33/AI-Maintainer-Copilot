@@ -9,7 +9,10 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 # Config
 EMBED_MODEL_NAME = "BAAI/bge-base-en-v1.5"
 RERANK_MODEL_NAME = "BAAI/bge-reranker-base"
-DB_URL = os.environ.get("DATABASE_URL", "postgresql://copilot:changeme@localhost:5432/copilot")
+# Accept the same +asyncpg-prefixed URL the api uses, since asyncpg itself
+# doesn't understand the SQLAlchemy driver suffix.
+_RAW_DB_URL = os.environ.get("DATABASE_URL", "postgresql://copilot:changeme@localhost:5432/copilot")
+DB_URL = _RAW_DB_URL.replace("+asyncpg", "")
 HYDE_PROMPT = (
     "Given the question about HashiCorp Terraform, write a short passage (3-4 sentences) "
     "that could answer it, as if it were from Terraform documentation."
@@ -19,64 +22,82 @@ device = "cuda" if __import__("torch").cuda.is_available() else "cpu"
 embed_model = SentenceTransformer(EMBED_MODEL_NAME, device=device)
 reranker = CrossEncoder(RERANK_MODEL_NAME, device=device)
 
+# ── Lazy module-level pool ─────────────────────────────
+# Previously create_pool() was called per /rag/search request and the pool
+# was never closed, leaking connections fast.
+_pool: asyncpg.Pool | None = None
+_pool_lock = asyncio.Lock()
+
+async def get_pool() -> asyncpg.Pool:
+    global _pool
+    if _pool is None:
+        async with _pool_lock:
+            if _pool is None:
+                _pool = await asyncpg.create_pool(DB_URL, min_size=1, max_size=4)
+    return _pool
+
+# Kept for backwards compatibility with eval scripts; new callers should use
+# get_pool() to share the module-level pool.
 async def create_pool():
     return await asyncpg.create_pool(DB_URL, min_size=1, max_size=4)
+
+def _add_filters(params, conditions, content_types, labels, min_closed_at, breadcrumb_prefix):
+    """Append asyncpg-style positional placeholders for the optional metadata
+    filters used by both dense and sparse search. Mutates params + conditions."""
+    if content_types:
+        start = len(params) + 1
+        params.extend(content_types)
+        placeholders = ",".join(f"${start + i}" for i in range(len(content_types)))
+        conditions.append(f"content_type IN ({placeholders})")
+    if labels:
+        start = len(params) + 1
+        params.extend(labels)
+        placeholders = ",".join(f"${start + i}" for i in range(len(labels)))
+        conditions.append(f"metadata->>'label' IN ({placeholders})")
+    if min_closed_at:
+        params.append(min_closed_at)
+        conditions.append(f"metadata->>'closed_at' >= ${len(params)}")
+    if breadcrumb_prefix:
+        params.append(breadcrumb_prefix + "%")
+        conditions.append(f"metadata->>'breadcrumb' LIKE ${len(params)}")
+
 
 async def dense_search(conn, query_vec, top_k=50, content_types=None, labels=None, min_closed_at=None, breadcrumb_prefix=None):
     """Dense (vector) search with optional metadata filters."""
     conditions = []
     params = [query_vec]
-    if content_types:
-        conditions.append(f"content_type IN ({','.join('$' + str(i+2+idx) for idx in range(len(content_types)))})")
-        params.extend(content_types)
-    if labels:
-        conditions.append(f"metadata->>'label' IN ({','.join('$' + str(i+2+len(content_types)+idx) for idx in range(len(labels)))})")
-        params.extend(labels)
-    if min_closed_at:
-        conditions.append("metadata->>'closed_at' >= $" + str(len(params)+1))
-        params.append(min_closed_at)
-    if breadcrumb_prefix:
-        conditions.append("metadata->>'breadcrumb' LIKE $" + str(len(params)+1))
-        params.append(breadcrumb_prefix + "%")
-
+    _add_filters(params, conditions, content_types, labels, min_closed_at, breadcrumb_prefix)
     where = "WHERE " + " AND ".join(conditions) if conditions else ""
+    params.append(top_k)
+    limit_idx = len(params)
     query = f"""
-        SELECT id, text, metadata, 1 - (embedding <=> $1::vector) AS similarity
+        SELECT id, text, content_type, source_id, metadata,
+               1 - (embedding <=> $1::vector) AS similarity
         FROM chunks
         {where}
         ORDER BY embedding <=> $1::vector
-        LIMIT $2
+        LIMIT ${limit_idx}
     """
-    params.append(top_k)
     rows = await conn.fetch(query, *params)
     return [dict(r) for r in rows]
+
 
 async def sparse_search(conn, query_text, top_k=50, content_types=None, labels=None, min_closed_at=None, breadcrumb_prefix=None):
     """Sparse (full-text) search."""
     conditions = ["to_tsvector('english', text) @@ plainto_tsquery('english', $1)"]
     params = [query_text]
-    if content_types:
-        conditions.append(f"content_type IN ({','.join('$' + str(i+2+idx) for idx in range(len(content_types)))})")
-        params.extend(content_types)
-    if labels:
-        conditions.append(f"metadata->>'label' IN ({','.join('$' + str(i+2+len(content_types)+idx) for idx in range(len(labels)))})")
-        params.extend(labels)
-    if min_closed_at:
-        conditions.append("metadata->>'closed_at' >= $" + str(len(params)+1))
-        params.append(min_closed_at)
-    if breadcrumb_prefix:
-        conditions.append("metadata->>'breadcrumb' LIKE $" + str(len(params)+1))
-        params.append(breadcrumb_prefix + "%")
-
+    _add_filters(params, conditions, content_types, labels, min_closed_at, breadcrumb_prefix)
     where = "WHERE " + " AND ".join(conditions)
+    params.append(top_k)
+    limit_idx = len(params)
     query = f"""
-        SELECT id, text, metadata, ts_rank_cd(to_tsvector('english', text), plainto_tsquery('english', $1)) AS score
+        SELECT id, text, content_type, source_id, metadata,
+               ts_rank_cd(to_tsvector('english', text), plainto_tsquery('english', $1)) AS score
         FROM chunks
         {where}
         ORDER BY score DESC
-        LIMIT $2
+        LIMIT ${limit_idx}
     """
-    params.append(top_k)
     rows = await conn.fetch(query, *params)
     return [dict(r) for r in rows]
 
