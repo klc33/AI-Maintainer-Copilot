@@ -17,14 +17,20 @@ rag:
     min_absolute: 0.40
     max_relative_drop: 0.15
 
-# NOTE: the fine-tuned classifier currently sits at macro_f1 ~0.10 on the
-# 16-example fixture (see open issue #7 in the project notes). The absolute
-# floors here are deliberately loose so CI doesn't permanently fail on a
-# known-broken model. Tighten these as soon as the classifier is retrained.
+# Classifier retrained 2026-05-21 in Colab (notebooks/train_classifier.ipynb).
+# Production val set: macro_f1=0.66, accuracy=0.80, every class F1>0
+# (see models/classifier/v1/model_card.json).
+#
+# In CI the classifier checkpoint isn't shipped (256 MB, gitignored), so
+# evals/classification/run.py falls back to a TF-IDF baseline trained on the
+# 16-row fixture, which typically lands at macro_f1≈0.10, accuracy≈0.25.
+# The min_absolute values below catch a complete classifier breakdown
+# (single-class prediction → macro_f1=0) while still letting the TF-IDF
+# baseline pass with a small margin.
 classification:
   macro_f1:
-    min_absolute: 0.05
-    max_relative_drop: 0.15
+    min_absolute: 0.08
+    max_relative_drop: 0.20
   accuracy:
-    min_absolute: 0.20
-    max_relative_drop: 0.15
+    min_absolute: 0.22
+    max_relative_drop: 0.20

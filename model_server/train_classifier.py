@@ -245,5 +245,116 @@ def main():
     with open("docs/model_card.md", "w", encoding="utf-8") as f:
         f.write(md)
 
+    # ── Plots + MinIO upload ─────────────────────────────
+    _generate_and_upload_plots(trainer, model, val_dataset, eval_results)
+    _upload_manifest(card)
+
+
+def _generate_and_upload_plots(trainer, model, val_dataset, eval_results: dict) -> None:
+    """Draw the standard three training plots and upload PNGs to MinIO.
+
+    Plots:
+      1. Train + eval loss curves over steps.
+      2. Per-class F1 + macro_F1 bar chart on the final validation set.
+      3. Confusion matrix on the final validation set.
+    """
+    try:
+        import io
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import torch
+        from sklearn.metrics import confusion_matrix, f1_score
+        from app.infra import blob
+    except Exception as e:
+        print(f"[plots] skipped — missing dep: {e}")
+        return
+
+    plots_dir = os.path.join(OUTPUT_DIR, "plots")
+    os.makedirs(plots_dir, exist_ok=True)
+    minio_prefix = "classifier/v1"
+    uploaded: list[str] = []
+
+    def _save_and_upload(fig, filename: str) -> None:
+        local = os.path.join(plots_dir, filename)
+        fig.savefig(local, bbox_inches="tight", dpi=120)
+        plt.close(fig)
+        with open(local, "rb") as f:
+            payload = f.read()
+        blob.put_bytes(blob.BUCKET_TRAINING_PLOTS, f"{minio_prefix}/{filename}", payload, "image/png")
+        uploaded.append(filename)
+
+    # 1. Loss curves
+    history = trainer.state.log_history
+    train_steps, train_loss = [], []
+    eval_steps, eval_loss = [], []
+    for entry in history:
+        if "loss" in entry and "step" in entry and "eval_loss" not in entry:
+            train_steps.append(entry["step"])
+            train_loss.append(entry["loss"])
+        if "eval_loss" in entry:
+            eval_steps.append(entry["step"])
+            eval_loss.append(entry["eval_loss"])
+    fig, ax = plt.subplots(figsize=(8, 5))
+    if train_loss:
+        ax.plot(train_steps, train_loss, label="train", alpha=0.8)
+    if eval_loss:
+        ax.plot(eval_steps, eval_loss, label="eval", marker="o")
+    ax.set_xlabel("step"); ax.set_ylabel("loss"); ax.set_title("Training / Validation Loss")
+    ax.legend(); ax.grid(alpha=0.3)
+    _save_and_upload(fig, "loss_curves.png")
+
+    # 2. Per-class F1 bar chart
+    fig, ax = plt.subplots(figsize=(7, 4))
+    bars = []
+    for lab in LABELS:
+        bars.append(eval_results.get(f"eval_f1_{lab}", eval_results.get(f"f1_{lab}", 0.0)) or 0.0)
+    ax.bar(LABELS + ["macro"], bars + [eval_results.get("eval_macro_f1", 0.0) or 0.0])
+    ax.set_ylim(0, 1.0); ax.set_ylabel("F1"); ax.set_title("Validation F1 per class")
+    ax.grid(axis="y", alpha=0.3)
+    _save_and_upload(fig, "per_class_f1.png")
+
+    # 3. Confusion matrix
+    device = next(model.parameters()).device
+    y_true, y_pred = [], []
+    with torch.no_grad():
+        for batch in torch.utils.data.DataLoader(val_dataset, batch_size=16):
+            input_ids = batch["input_ids"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
+            labels = batch["labels"].to(device)
+            preds = model(input_ids=input_ids, attention_mask=attention_mask).logits.argmax(dim=1)
+            y_true.extend(labels.cpu().numpy().tolist())
+            y_pred.extend(preds.cpu().numpy().tolist())
+    cm = confusion_matrix(y_true, y_pred, labels=list(range(len(LABELS))))
+    fig, ax = plt.subplots(figsize=(6, 5))
+    im = ax.imshow(cm, cmap="Blues")
+    ax.set_xticks(range(len(LABELS))); ax.set_yticks(range(len(LABELS)))
+    ax.set_xticklabels(LABELS); ax.set_yticklabels(LABELS)
+    ax.set_xlabel("predicted"); ax.set_ylabel("true"); ax.set_title("Confusion matrix")
+    for i in range(len(LABELS)):
+        for j in range(len(LABELS)):
+            ax.text(j, i, str(cm[i][j]), ha="center", va="center",
+                    color="white" if cm[i][j] > cm.max() / 2 else "black")
+    fig.colorbar(im, ax=ax)
+    _save_and_upload(fig, "confusion_matrix.png")
+
+    print(f"[plots] uploaded to MinIO bucket={blob.BUCKET_TRAINING_PLOTS} prefix={minio_prefix}: {uploaded}")
+
+
+def _upload_manifest(card: dict) -> None:
+    """Upload the model_card.json manifest to MinIO. Weights stay on disk
+    (the bind-mount in compose serves them at runtime); manifest in blob
+    storage is the authoritative record of *what version was trained when*."""
+    try:
+        from app.infra import blob
+    except Exception as e:
+        print(f"[manifest] skipped — missing dep: {e}")
+        return
+    key = "classifier/v1/model_card.json"
+    blob.put_json(blob.BUCKET_MODELS, key, card)
+    print(f"[manifest] uploaded to MinIO bucket={blob.BUCKET_MODELS} key={key}")
+
+
 if __name__ == "__main__":
     main()

@@ -1,0 +1,141 @@
+{
+  "golden_set_size": 25,
+  "label_distribution": {
+    "question": 7,
+    "bug": 6,
+    "feature": 6,
+    "docs": 6
+  },
+  "models": {
+    "dl": {
+      "accuracy": 0.96,
+      "macro_f1": 0.958041958041958,
+      "per_class_f1": {
+        "bug": 0.9090909090909091,
+        "feature": 0.9230769230769231,
+        "docs": 1.0,
+        "question": 1.0
+      },
+      "confusion_matrix": [
+        [
+          5,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          6,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          6,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          7
+        ]
+      ],
+      "confusion_matrix_labels": [
+        "bug",
+        "feature",
+        "docs",
+        "question"
+      ],
+      "avg_latency_seconds": 0.13763774871826173
+    },
+    "ml": {
+      "accuracy": 0.8,
+      "macro_f1": 0.7961038961038962,
+      "per_class_f1": {
+        "bug": 0.8,
+        "feature": 0.8571428571428571,
+        "docs": 0.8,
+        "question": 0.7272727272727273
+      },
+      "confusion_matrix": [
+        [
+          6,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          6,
+          0,
+          0
+        ],
+        [
+          2,
+          0,
+          4,
+          0
+        ],
+        [
+          1,
+          2,
+          0,
+          4
+        ]
+      ],
+      "confusion_matrix_labels": [
+        "bug",
+        "feature",
+        "docs",
+        "question"
+      ],
+      "avg_inference_seconds": 0.00026067733764648435,
+      "training_seconds": 18.51424264907837
+    },
+    "llm": {
+      "accuracy": 0.72,
+      "macro_f1": 0.7095238095238096,
+      "per_class_f1": {
+        "bug": 0.6666666666666666,
+        "feature": 0.8571428571428571,
+        "docs": 0.7142857142857143,
+        "question": 0.6
+      },
+      "confusion_matrix": [
+        [
+          4,
+          1,
+          1,
+          0
+        ],
+        [
+          0,
+          6,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          5,
+          0
+        ],
+        [
+          1,
+          1,
+          2,
+          3
+        ]
+      ],
+      "confusion_matrix_labels": [
+        "bug",
+        "feature",
+        "docs",
+        "question"
+      ],
+      "avg_latency_seconds": 0.03638993263244629
+    }
+  }
+}

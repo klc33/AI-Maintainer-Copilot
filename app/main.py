@@ -5,15 +5,35 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 
-from app.api.memory import router as memory_router
-from app.api.middleware import ExceptionLoggingMiddleware
+from app.infra.middleware import ExceptionLoggingMiddleware
 from app.infra.vault import vault, VaultError
 from app.infra.db import engine, Base
-from app.api.error_handlers import register_exception_handlers
-from app.api.chat import router as chat_router
-from app.api.widget import router as widget_router, catalog_router as widget_catalog_router
-from app.api.widget_admin import router as widget_admin_router
+from app.infra.error_handlers import register_exception_handlers
+from app.infra.redaction import structlog_redactor
+from app.api import (
+    auth_router,
+    chat_router,
+    memory_router,
+    widget_router,
+    widget_catalog_router,
+    widget_admin_router,
+)
 
+
+# ── structlog with the redaction processor ────────────
+# The redactor runs *first* so even built-in processors (timestamp,
+# log_level, key sorting…) can't accidentally serialize a secret that's
+# already been formatted into a string elsewhere.
+structlog.configure(
+    processors=[
+        structlog_redactor,
+        structlog.processors.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.dev.ConsoleRenderer(),
+    ],
+    wrapper_class=structlog.make_filtering_bound_logger(structlog.stdlib.logging.INFO),
+    cache_logger_on_first_use=True,
+)
 
 logger = structlog.get_logger()
 
@@ -92,8 +112,7 @@ register_exception_handlers(app)
 async def health():
     return {"status": "ok"}
 
-# ── Auth router ────────────────────────────────────────
-from app.api.auth import router as auth_router
+# ── Middleware + routers ───────────────────────────────
 app.add_middleware(ExceptionLoggingMiddleware)
 app.include_router(memory_router)
 app.include_router(auth_router)
@@ -103,9 +122,6 @@ app.include_router(widget_catalog_router)
 app.include_router(widget_admin_router)
 
 
-
-
-# Future routers will be added here (chat, widget, etc.)
 async def check_groq_key():
     try:
         groq_data = vault.load("secret/shared/groq")

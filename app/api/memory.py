@@ -1,6 +1,7 @@
 # app/api/memory.py
 from fastapi import APIRouter, Depends
-from app.services.auth import fastapi_users
+
+from app.depends import current_active_user
 from app.domain.models import User
 from app.services.memory import list_memories
 
@@ -8,7 +9,7 @@ router = APIRouter(prefix="/memory", tags=["memory"])
 
 @router.get("/list")
 async def get_memories(
-    user: User = Depends(fastapi_users.current_user(active=True)),
+    user: User = Depends(current_active_user),
 ):
     """Return all episodic memories for the current user."""
     memories = await list_memories(str(user.id))

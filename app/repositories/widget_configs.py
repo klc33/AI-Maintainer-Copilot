@@ -6,26 +6,9 @@ dedicated asyncpg pool for the JSONB/text[] columns since SQLAlchemy 2's
 text[] handling is more awkward than asyncpg's native support."""
 from __future__ import annotations
 
-import os
 import json
-import asyncio
-import asyncpg
 
-
-_RAW_DB_URL = os.environ["DATABASE_URL"]
-_DB_URL = _RAW_DB_URL.replace("+asyncpg", "")
-
-_pool: asyncpg.Pool | None = None
-_pool_lock = asyncio.Lock()
-
-
-async def _get_pool() -> asyncpg.Pool:
-    global _pool
-    if _pool is None:
-        async with _pool_lock:
-            if _pool is None:
-                _pool = await asyncpg.create_pool(_DB_URL, min_size=1, max_size=5)
-    return _pool
+from app.db.pool import get_pool as _get_pool
 
 
 def _row_to_dict(row) -> dict:

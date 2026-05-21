@@ -1,8 +1,8 @@
-# create_admin_user.py
+# scripts/create_admin_user.py
 """Create or reset an admin user in the copilot `users` table.
 
 Run via:
-    docker compose exec api /app/.venv/bin/python /app/create_admin_user.py
+    docker compose exec api /app/.venv/bin/python /app/scripts/create_admin_user.py
 
 Reads optional env:
     ADMIN_EMAIL    (default: admin@example.com)

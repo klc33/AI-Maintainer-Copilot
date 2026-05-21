@@ -1,12 +1,16 @@
 # app/infra/db.py
-import os
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import DeclarativeBase
+"""Back-compat shim. The canonical home for the SQLAlchemy engine,
+session factory, and declarative Base is now `app.db.session`. New code
+should import from `app.db` directly. Existing imports of the form
 
-DATABASE_URL = os.environ["DATABASE_URL"]
+    from app.infra.db import engine, async_session_factory, Base
 
-engine = create_async_engine(DATABASE_URL, echo=False, pool_size=10)
-async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
-
-class Base(DeclarativeBase):
-    pass
+continue to work via the re-exports below.
+"""
+from app.db.session import (  # noqa: F401
+    Base,
+    DATABASE_URL,
+    async_session_factory,
+    engine,
+    get_session,
+)
