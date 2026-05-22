@@ -10,12 +10,33 @@
 # When the production corpus is also wired into CI, re-tune.
 
 rag:
+  # ── Retrieval metrics ──
   hit_at_5:
     min_absolute: 0.50   # fixture answers are easy; current ~1.0
     max_relative_drop: 0.15
   mrr_at_10:
     min_absolute: 0.40
     max_relative_drop: 0.15
+
+  # ── Generation metrics (frozen LLM judge) ──
+  # These keys only appear in the report when a Groq judge key is available;
+  # diff.py silently skips a thresholded metric that isn't in the report, so
+  # a CI run without the key still passes on retrieval alone.
+  # Scores are the judge's 0-4 ratings normalised to 0-1, averaged over the
+  # golden questions. See evals/rag/judge.py and EVALS.md.
+  gen_faithfulness:          # answer grounded in retrieved context (anti-hallucination)
+    min_absolute: 0.55
+    max_relative_drop: 0.20
+  gen_answer_correctness:    # answer agrees with the golden ideal_answer
+    min_absolute: 0.50
+    max_relative_drop: 0.20
+  # Judge trust check: fraction of hand-labelled axis scores the judge lands
+  # within one 0.25 bucket of (evals/rag/human_labels.jsonl, 5 items x 3 axes).
+  # A drop here means the judge drifted — stale scores are worse than none —
+  # so it blocks the build too.
+  judge_human_agreement:
+    min_absolute: 0.60
+    max_relative_drop: 0.25
 
 # Classifier retrained 2026-05-21 in Colab (notebooks/train_classifier.ipynb).
 # Production val set: macro_f1=0.66, accuracy=0.80, every class F1>0

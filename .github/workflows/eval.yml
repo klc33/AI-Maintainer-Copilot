@@ -46,6 +46,12 @@ jobs:
       # that imports `app.X` or `model_server.X`. alembic.ini also sets
       # `prepend_sys_path = .` but PYTHONPATH covers the rest of the steps.
       PYTHONPATH: ${{ github.workspace }}
+      # Enables the RAG *generation* metrics (answer faithfulness/correctness)
+      # and the frozen-judge calibration. Optional: if the repo secret isn't
+      # set this is an empty string, the judge reports `generation: skipped`,
+      # and the suite still runs retrieval + classification. Add the secret
+      # under Settings → Secrets → Actions to turn generation scoring on.
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
 
     steps:
       - uses: actions/checkout@v4

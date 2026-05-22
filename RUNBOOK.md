@@ -31,7 +31,8 @@ A clean `docker compose up -d` takes ~30 s on a warm machine (HF model cache pop
 
 | Symptom | Most likely cause | Fix |
 |---|---|---|
-| api container is `Restarting` in a loop | One of the boot checks failed. Vault unreachable, JWT secret missing, migration not at head, Groq key missing. | `docker compose logs api | tail -30` — the boot-check that failed is the first `Boot check failed` line. |
+| api container is `Restarting` / `Exited (3)` | One of the boot checks failed. | `docker compose logs api | grep "Boot check failed"` — the `error=` field names the failed check. |
+| api boot fails: `Failed to read secret at secret/shared/jwt … InvalidPath` | **Vault lost its secrets.** Vault runs in dev mode — secrets are in-memory and vanish on every Vault container restart. | `bash scripts/seed_vault.sh` then `docker compose up -d api model-server`. The script is idempotent. |
 | `Database migration not at head. Current: X, expected one of: [Y]` on boot | A migration exists in the repo that hasn't been applied. | `docker compose run --rm migrate` — runs `alembic upgrade head` against the DB and exits. |
 | model-server is `unhealthy` and `/health` from the api times out | bge models still downloading on first boot, OR the HF cache volume got wiped. | `docker compose logs model-server | grep "Loading weights"` — you should see two model loads (199 weights + 201 weights) then "Application startup complete". If only one is loading, give it 2 more minutes (the rate-limit-throttled cold download). |
 | Chat tool returns `"classifier unavailable"` / `"RAG search unavailable"` | model-server down or unreachable. | `docker compose ps model-server` — restart it with `docker compose restart model-server`. |
@@ -79,6 +80,61 @@ docker compose exec minio mc ls --recursive local/
 
 ---
 
+## Running the tests
+
+Two kinds of automated checks live in this repo: **pytest unit tests** and the
+**eval suites**. CI ([.github/workflows/eval.yml](.github/workflows/eval.yml))
+runs the eval suites on every push and PR; the commands below run everything
+locally.
+
+### Unit tests (pytest)
+
+The pytest tree:
+
+| Path | What it covers |
+|---|---|
+| `app/infra/tests/test_redaction.py` | The redaction layer — 22 tests asserting no fake secret escapes via logs, Langfuse spans, or memory writes. |
+| `tests/unit/`, `tests/integration/`, `tests/smoke/` | Scaffold for future tests. Empty today; pytest auto-discovers any `test_*.py` dropped in. |
+
+Run them inside the `api` container — its venv already has every dependency:
+
+```bash
+docker compose exec api /app/.venv/bin/python -m pytest
+```
+
+Or on the host with uv (pulls the test + app dependency groups):
+
+```bash
+uv run --group dev --group api pytest                                       # everything
+uv run --group dev --group api pytest app/infra/tests/test_redaction.py -v   # one file, verbose
+uv run --group dev --group api pytest -k redact_deep                         # filter by test name
+```
+
+There is no pytest config block — discovery is the default (`test_*.py`,
+recursing everything except `.venv/` and `node_modules/`).
+
+### Eval suites (RAG + classification)
+
+These are behavioral tests of the ML/RAG system, not pytest. They need a
+running Postgres with an ingested corpus. See [EVALS.md](EVALS.md) for the
+methodology; the commands:
+
+```bash
+# Both suites → combined eval_report.json (exactly what CI runs)
+docker compose exec model-server /app/.venv/bin/python /app/evals/run_all.py --output eval_report.json
+
+# RAG only — retrieval + generation + judge calibration
+docker compose exec model-server /app/.venv/bin/python /app/evals/rag/run.py
+
+# Classification only
+docker compose exec model-server /app/.venv/bin/python /app/evals/classification/run.py
+```
+
+A regression against the previous green build is what fails CI — see
+[CI eval regression](#ci-eval-regression) below.
+
+---
+
 ## Creating / resetting the admin user
 
 ```bash
@@ -90,16 +146,41 @@ Pass `ADMIN_EMAIL` / `ADMIN_PASSWORD` env vars to use different credentials. The
 
 ---
 
-## Rotating Vault secrets
+## Vault secrets — seeding and rotating
 
-If a secret leaks (or just on schedule):
+### Vault is in dev mode (secrets are ephemeral)
 
-1. Generate the new secret (Groq dashboard / JWT secret CLI / etc).
-2. `docker compose exec -T -e VAULT_TOKEN=root vault vault kv put -address=http://vault:8200 secret/shared/<name> secret="..."` — see [DECISIONS.md](DECISIONS.md) for the exact commands per secret.
-3. `docker compose restart api model-server` — both reload secrets from Vault at boot.
-4. *(Optional)* Confirm the new value is being used: `docker compose logs api | grep "loaded from Vault"`.
+`docker-compose.yml` runs Vault with `VAULT_DEV_ROOT_TOKEN_ID`. Dev mode keeps
+everything **in memory** — every Vault container restart wipes all secrets,
+and the api/model-server then fail their boot checks. This is the single most
+common "it worked yesterday" failure.
 
-For the JWT secret specifically: rotating invalidates every existing user session AND every widget session JWT. Users will be logged out on next request; widget iframes will re-mint sessions automatically.
+**Recovery (after any Vault restart):**
+
+```bash
+bash scripts/seed_vault.sh
+docker compose up -d api model-server
+```
+
+`scripts/seed_vault.sh` re-seeds the three required secrets:
+
+| Secret | Source | Notes |
+|---|---|---|
+| `secret/shared/jwt` | freshly generated (openssl/python) | Only generated if missing — re-running the script won't rotate it. |
+| `secret/shared/groq` | `GROQ_API_KEY` in `.env` | |
+| `secret/shared/langfuse` | `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` in `.env` | |
+
+The script is idempotent — safe to run any time. If a key is missing from
+`.env` it errors out clearly rather than seeding a half-broken Vault.
+
+### Rotating a secret on purpose (leak / schedule)
+
+1. Update the value in `.env` (for Groq/Langfuse) or let the script regenerate (for JWT — delete `secret/shared/jwt` first so the "only if missing" check regenerates it).
+2. `bash scripts/seed_vault.sh`
+3. `docker compose up -d api model-server` — both reload secrets from Vault at boot.
+4. *(Optional)* Confirm: `docker compose logs api | grep "loaded from Vault"`.
+
+Rotating the **JWT secret** invalidates every existing user session AND every widget session JWT. Users get logged out on next request; widget iframes re-mint sessions automatically.
 
 ---
 

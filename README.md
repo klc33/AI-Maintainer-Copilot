@@ -56,6 +56,18 @@ The summarization tool *does* use Groq's `llama-3.1-8b-instant`, because open-en
    | <http://localhost:3000> | Langfuse (admin@example.com / admin123 by default) |
    | <http://localhost:9001> | MinIO console (minioadmin / minioadmin) |
 
+## Tests
+
+```bash
+docker compose exec api /app/.venv/bin/python -m pytest                        # unit tests (pytest)
+docker compose exec model-server /app/.venv/bin/python /app/evals/run_all.py   # RAG + classification evals
+```
+
+The repo has pytest unit tests and the RAG + classification eval suites; the
+eval suites also run in CI on every push and PR. Full commands, the test
+layout, and CI gating are in [RUNBOOK.md](RUNBOOK.md) "Running the tests";
+eval methodology is in [EVALS.md](EVALS.md).
+
 ## Repo layout
 
 ```
@@ -96,8 +108,9 @@ docs/                ← Markdown docs (RAG corpus + model card).
 - **[DECISIONS.md](DECISIONS.md)** — architectural decision records. The classifier-choice ADR-001 lives here. Also: Vault setup commands.
 - **[SECURITY.md](SECURITY.md)** — redaction layer threat model + pattern justification.
 - **[RUNBOOK.md](RUNBOOK.md)** — day-2 operations: how to restart things, recover from common failures, retrain the model, manage widgets, rotate secrets.
-- **[ARCH.md](ARCH.md)** — *(empty)* — reserved for a deeper architecture write-up. The repo-layout section above is the current substitute.
-- **[EVALS.md](EVALS.md)** — *(empty)* — reserved for the eval methodology write-up.
+- **[ARCH.md](ARCH.md)** — deeper architecture write-up: service topology, the layered api (api → services → repositories → db), infra adapters, request flow, boot checks.
+- **[rag-works.md](rag-works.md)** — how RAG works here: the retrieval techniques used, which files hold the pipeline, and where it's evaluated.
+- **[EVALS.md](EVALS.md)** — eval methodology: RAG retrieval + generation metrics, the frozen judge and its hand-label calibration, classification, and CI regression gating.
 - **[notebooks/README.md](notebooks/README.md)** — how to retrain the classifier on Colab.
 
 ## License
