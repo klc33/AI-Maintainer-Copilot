@@ -321,12 +321,14 @@ Two kinds of automated checks: **pytest unit tests** and the **eval suites**.
 
 | Path | Covers |
 |---|---|
+| `tests/unit/` | pure logic — tool registry, RAG judge parser, eval-diff helpers, eval data files |
+| `tests/smoke/` | wiring — docs, docker-compose, prompts, the FastAPI app constructs |
+| `tests/integration/` | live-stack health — Postgres migrated, model-server + api `/health` (skip when down) |
 | `app/infra/tests/test_redaction.py` | redaction layer — 22 tests; no fake secret escapes via logs, traces, or memory |
-| `tests/unit/`, `tests/integration/`, `tests/smoke/` | empty scaffold; pytest auto-discovers any `test_*.py` added |
 
 ```bash
-docker compose exec api /app/.venv/bin/python -m pytest      # in-container (all deps present)
-uv run --group dev --group api pytest                        # on the host
+docker compose exec api /app/.venv/bin/python -m pytest                  # in-container (all deps present)
+uv run --group dev --group api --group evals python -m pytest             # on the host
 ```
 
 ### Eval suites (RAG + classification)

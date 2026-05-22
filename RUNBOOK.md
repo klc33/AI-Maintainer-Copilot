@@ -89,12 +89,15 @@ locally.
 
 ### Unit tests (pytest)
 
-The pytest tree:
+The pytest tree — three tiers under `tests/`, plus a test co-located with the
+code it covers:
 
 | Path | What it covers |
 |---|---|
+| `tests/unit/` | Pure-logic tests — the tool registry, the RAG judge's score parser, the eval-diff helpers, and the eval data-file schemas (golden set, human labels, thresholds). |
+| `tests/smoke/` | Wiring checks — the docs are present, `docker-compose.yml` parses, prompts load, and the FastAPI `api` app constructs with its routers. |
+| `tests/integration/` | Live-stack checks — Postgres is migrated, the model-server and api answer `/health`. Each **skips cleanly** when its service isn't reachable. |
 | `app/infra/tests/test_redaction.py` | The redaction layer — 22 tests asserting no fake secret escapes via logs, Langfuse spans, or memory writes. |
-| `tests/unit/`, `tests/integration/`, `tests/smoke/` | Scaffold for future tests. Empty today; pytest auto-discovers any `test_*.py` dropped in. |
 
 Run them inside the `api` container — its venv already has every dependency:
 
@@ -102,16 +105,23 @@ Run them inside the `api` container — its venv already has every dependency:
 docker compose exec api /app/.venv/bin/python -m pytest
 ```
 
-Or on the host with uv (pulls the test + app dependency groups):
+Or on the host with uv (pull the test + app + evals dependency groups):
 
 ```bash
-uv run --group dev --group api pytest                                       # everything
-uv run --group dev --group api pytest app/infra/tests/test_redaction.py -v   # one file, verbose
-uv run --group dev --group api pytest -k redact_deep                         # filter by test name
+uv run --group dev --group api --group evals python -m pytest                 # everything
+uv run --group dev --group api --group evals python -m pytest tests/unit -v   # one tier, verbose
+uv run --group dev --group api --group evals python -m pytest -k redact        # filter by name
 ```
 
-There is no pytest config block — discovery is the default (`test_*.py`,
-recursing everything except `.venv/` and `node_modules/`).
+The integration tier needs a running stack; without one those tests skip and
+the rest still pass. `conftest.py` points `DATABASE_URL` / `MODEL_SERVER_URL`
+at the docker-compose host-mapped ports, so `docker compose up -d` is all it
+takes for the integration tier to run for real.
+
+There is no `[tool.pytest.ini_options]` block — discovery is the default
+(`test_*.py`, skipping `.venv/` and `node_modules/`). The root `conftest.py`
+puts the project root on `sys.path` and sets local-dev env defaults so
+unit/smoke tests need no stack.
 
 ### Eval suites (RAG + classification)
 
